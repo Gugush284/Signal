@@ -11,12 +11,13 @@
 #include <fcntl.h>
 
 int out_char = 0, counter = 128;
+int key = 1;
 pid_t pid;
 
 // SIGCHLD
 void childexit(int signo) 
 {
-	exit(EXIT_SUCCESS);
+	key = 0;
 }
 
 // SIGALRM
@@ -83,6 +84,7 @@ int main(int argc, char ** argv)
     		exit(EXIT_FAILURE);    
   	if(sigaction(SIGUSR2, &act_zero, NULL) == -1)
     		exit(EXIT_FAILURE);
+    	//1) также идет race condition между обработчиком и родителем за counter
 
   	sigaddset(&set, SIGUSR1);
   	sigaddset(&set, SIGUSR2);
@@ -92,6 +94,23 @@ int main(int argc, char ** argv)
   	sigemptyset(&set);
 
   	pid = fork();
+  	/*
+  	1) 
+  	начало критсекции для родителя - борьба за маску полученных сигналов
+  	родителя, ребенок изменяет ее путем kill - выставление 1, а родитель изменяет ее при 
+  	завершении обработчика - выставление 0
+	2)
+	начало критсекция ребенка - борьба за маску полученных родителем
+	сигналов
+	3)
+	начало критсекция ребенка - борьба за маску полученных ребенком
+	сигналов
+	4) 
+  	начало критсекции для родителя - борьба за маску полученных сигналов
+  	ребенком
+  	5)
+  	критическими секциями являются обработчики
+	*/
 
   	if (pid == -1)
   	{
@@ -128,7 +147,6 @@ int main(int argc, char ** argv)
     		}
 
     		int i;
-
     		while (read(fd, &c, 1) > 0)
     		{	
       			alarm(3);
@@ -139,10 +157,37 @@ int main(int argc, char ** argv)
         			else                  
           				kill(ppid, SIGUSR2);
         			sigsuspend(&set); 
-      			} 
+      			}
     		}
+    		/*
+		1) конец критсекция ребенка - борьба за маску полученных родителем
+		сигналов
+		2) конец критсекция ребенка - борьба за маску полученных ребенком
+		сигналов
+		*/
     		exit(EXIT_SUCCESS);
   	}
+
+  	errno = 0;
+ 	do {	
+    		if(counter == 0)
+    		{     
+			write(STDOUT_FILENO, &out_char, 1);       
+      			fflush(stdout);
+      			counter=128;
+      			out_char = 0;
+    		}
+    		sigsuspend(&set);
+    	/*
+    	конец критсекции для родителя - борьба за маску полученных сигналов
+  	родителя
+  	конец критсекции для родителя - борьба за маску полученных сигналов
+  	ребенком
+    	*/
+  	} while (key);
+
+  	return (0);
+}
 
   	errno = 0;
  	do {	
