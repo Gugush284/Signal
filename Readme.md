@@ -5,4 +5,4 @@ The code is designed to test the capabilities of POSIX signals in Linux. The pro
 I express my gratitude to Morgen Matvey (@Melges) for the idea and description of the implementation
 
 ## Status
-development completed
+Development completed
